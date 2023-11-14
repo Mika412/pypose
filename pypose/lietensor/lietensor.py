@@ -914,8 +914,8 @@ class LieTensor(torch.Tensor):
                     lt.ltype = ltype
                     if lt.shape[-1:] != lt.ltype.dimension:
                         link = 'https://pypose.org/docs/main/generated/pypose.LieTensor'
-                        warnings.warn('Tensor Shape Invalid by calling {}, ' \
-                            'go to {}'.format(func, link))
+                        # warnings.warn('Tensor Shape Invalid by calling {}, ' \
+                        #     'go to {}'.format(func, link))
                     return lt
                 return t
             return tree_map(warp, data)
