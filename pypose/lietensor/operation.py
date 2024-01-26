@@ -9,13 +9,13 @@ def so3_Jl(x):
     theta = torch.linalg.norm(x, dim=-1, keepdim=True).unsqueeze(-1)
     theta2 = theta**2
     I = torch.eye(3, device=x.device, dtype=x.dtype).expand(x.shape[:-1]+(3, 3))
-    
+
     idx = (theta > torch.finfo(theta.dtype).eps)
-    
+
     # Use vectorized operations to compute coef1 and coef2 for all elements simultaneously
     coef1 = torch.zeros_like(theta, device=x.device, dtype=x.dtype, requires_grad=False)
     coef2 = torch.zeros_like(theta, device=x.device, dtype=x.dtype, requires_grad=False)
-    
+
     # Common factor for coef1 and coef2 computation
     theta_common = theta[idx]
     theta2_common = theta_common * theta_common
@@ -27,7 +27,7 @@ def so3_Jl(x):
     # Coef2 computation
     coef2[idx] = (theta_common - theta_common.sin()) / (theta_common * theta2_common)
     coef2[~idx] = 1.0 / 6.0 - (1.0 / 120) * theta2[~idx]
-    
+
     # Use vectorized operations for the final computation
     result = I + coef1 * K + coef2 * (K @ K)
 
@@ -38,22 +38,22 @@ def so3_Jl_inv(x):
     K = vec2skew(x)
     theta = torch.linalg.norm(x, dim=-1, keepdim=True).unsqueeze(-1)
     I = torch.eye(3, device=x.device, dtype=x.dtype).expand(x.shape[:-1]+(3, 3))
-    
+
     # Use vectorized operations to compute coef2 for all elements simultaneously
     idx = (theta > torch.finfo(theta.dtype).eps)
     coef2 = torch.zeros_like(theta, device=x.device, dtype=x.dtype, requires_grad=False)
-    
+
     # For elements where theta > eps
     theta_idx = theta[idx]
     theta_half_idx, theta2_idx = 0.5 * theta_idx, theta_idx * theta_idx
     coef2[idx] = (1.0 - theta_idx * theta_half_idx.cos() / (2.0 * theta_half_idx.sin())) / theta2_idx
-    
+
     # For elements where theta <= eps
     coef2[~idx] = 1.0 / 12.0
-    
+
     # Use vectorized operations for the final computation
     result = I - 0.5 * K + coef2 * (K @ K)
-    
+
     return result
 
 def so3_adj(x):
@@ -230,7 +230,7 @@ def SO3_Act4_Jacobian(p):
 
 
 def SE3_Adj(X):
-    
+
     t, q = X[..., :3], X[..., 3:]
 
     # Compute SO3_Adj(q) once to avoid redundant calculations
@@ -384,8 +384,7 @@ class SO3_Log(torch.autograd.Function):
         grad = torch.matmul(grad_output.unsqueeze(-2), Jl_inv).squeeze(-2)
 
         zero = torch.zeros(output.shape[:-1] + (1,), device=output.device, dtype=output.dtype)
-
-        return grad, zero
+        return torch.cat((grad, zero), dim=-1)
 
 
 
