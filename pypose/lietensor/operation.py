@@ -3,30 +3,18 @@ from .basics import vec2skew
 from ..basics import pm, cumops, cummul, cumprod
 
 def so3_Jl(x):
-  # Move input tensor to GPU
-    x.to(x.device)
+    x = x.to(x.device)  # Move input tensor to GPU
     K = vec2skew(x)
     theta = torch.linalg.norm(x, dim=-1, keepdim=True).unsqueeze(-1)
     theta2 = theta**2
     I = torch.eye(3, device=x.device, dtype=x.dtype).expand(x.shape[:-1]+(3, 3))
 
-    idx = (theta > torch.finfo(theta.dtype).eps)
-
     # Use vectorized operations to compute coef1 and coef2 for all elements simultaneously
-    coef1 = torch.zeros_like(theta, device=x.device, dtype=x.dtype, requires_grad=False)
-    coef2 = torch.zeros_like(theta, device=x.device, dtype=x.dtype, requires_grad=False)
+    coef1 = (1 - theta.cos()) / theta2
+    coef1 = torch.where(theta > torch.finfo(theta.dtype).eps, coef1, 0.5 - (1.0 / 24.0) * theta2)
 
-    # Common factor for coef1 and coef2 computation
-    theta_common = theta[idx]
-    theta2_common = theta_common * theta_common
-
-    # Coef1 computation
-    coef1[idx] = (1 - theta_common.cos()) / theta2_common
-    coef1[~idx] = 0.5 - (1.0 / 24.0) * theta2[~idx]
-
-    # Coef2 computation
-    coef2[idx] = (theta_common - theta_common.sin()) / (theta_common * theta2_common)
-    coef2[~idx] = 1.0 / 6.0 - (1.0 / 120) * theta2[~idx]
+    coef2 = (theta - theta.sin()) / (theta * theta2)
+    coef2 = torch.where(theta > torch.finfo(theta.dtype).eps, coef2, 1.0 / 6.0 - (1.0 / 120.0) * theta2)
 
     # Use vectorized operations for the final computation
     result = I + coef1 * K + coef2 * (K @ K)
@@ -40,16 +28,15 @@ def so3_Jl_inv(x):
     I = torch.eye(3, device=x.device, dtype=x.dtype).expand(x.shape[:-1]+(3, 3))
 
     # Use vectorized operations to compute coef2 for all elements simultaneously
-    idx = (theta > torch.finfo(theta.dtype).eps)
     coef2 = torch.zeros_like(theta, device=x.device, dtype=x.dtype, requires_grad=False)
 
     # For elements where theta > eps
-    theta_idx = theta[idx]
-    theta_half_idx, theta2_idx = 0.5 * theta_idx, theta_idx * theta_idx
-    coef2[idx] = (1.0 - theta_idx * theta_half_idx.cos() / (2.0 * theta_half_idx.sin())) / theta2_idx
+    theta_half = 0.5 * theta
+    theta2 = theta * theta
+    coef2 = (1.0 - theta * theta_half.cos() / (2.0 * theta_half.sin())) / theta2
 
     # For elements where theta <= eps
-    coef2[~idx] = 1.0 / 12.0
+    coef2 = torch.where(theta > torch.finfo(theta.dtype).eps, coef2, 1.0 / 12.0)
 
     # Use vectorized operations for the final computation
     result = I - 0.5 * K + coef2 * (K @ K)
@@ -361,15 +348,16 @@ class SO3_Log(torch.autograd.Function):
 
         factor = torch.zeros_like(v_norm, requires_grad=False)
 
-        # Combine conditions to reduce redundancy
-        idx1 = v_larger_than_eps & w_larger_than_eps
-        idx2 = v_larger_than_eps & ~w_larger_than_eps
-        idx3 = ~v_larger_than_eps
-
-        # Use vectorized operations for factor computation
-        factor[idx1] = 2.0 * torch.atan(v_norm[idx1] / w[idx1]) / v_norm[idx1]
-        factor[idx2] = pm(w[idx2]) * torch.pi / v_norm[idx2]
-        factor[idx3] = 2.0 * (1.0 / w[idx3] - v_norm[idx3] * v_norm[idx3] / (3 * w[idx3] ** 3))
+        # Compute factor using element-wise operations
+        factor = torch.where(v_larger_than_eps & w_larger_than_eps,
+                             2.0 * torch.atan(v_norm / w) / v_norm,
+                             factor)
+        factor = torch.where(v_larger_than_eps & ~w_larger_than_eps,
+                             pm(w) * torch.pi / v_norm,
+                             factor)
+        factor = torch.where(~v_larger_than_eps,
+                             2.0 * (1.0 / w - v_norm * v_norm / (3 * w ** 3)),
+                             factor)
 
         output = factor * v
         ctx.save_for_backward(output)
